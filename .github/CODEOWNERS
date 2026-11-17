@@ -1,0 +1,5 @@
+# Asks heap-admins to look at changes to shared pieces. Branch protection doesn't
+# require their approval; anyone can approve anything.
+/platform/  @recursecenter/heap-admins
+/projects/  @recursecenter/heap-admins
+/bootstrap/ @recursecenter/heap-admins

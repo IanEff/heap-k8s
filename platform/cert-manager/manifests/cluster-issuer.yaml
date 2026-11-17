@@ -1,0 +1,26 @@
+# Let's Encrypt through Cloudflare DNS01, as on the old cluster. The token lives
+# in the SealedSecret cloudflare-api-token-secret next to this file; seal it
+# with:
+#
+#   kubectl -n cert-manager create secret generic cloudflare-api-token-secret \
+#     --from-literal=api-token=<token> --dry-run=client -o yaml \
+#     | kubeseal -o yaml > platform/cert-manager/manifests/cloudflare-api-token.sealed.yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    # TODO: an ACME contact address the heap admins read. Optional.
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token-secret
+              key: api-token

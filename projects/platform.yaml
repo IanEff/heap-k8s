@@ -1,0 +1,17 @@
+# The plumbing everyone's apps run on. Cluster-scoped resources and CRDs are
+# allowed here and nowhere else.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  description: Shared components under platform/
+  sourceRepos:
+    - "*"
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "*"
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"

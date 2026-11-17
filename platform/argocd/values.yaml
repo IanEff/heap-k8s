@@ -1,0 +1,73 @@
+# Single replicas everywhere; Heap is one small cluster.
+global:
+  domain: argocd.recurse.cloud
+
+notifications:
+  enabled: false
+
+configs:
+  params:
+    # TLS ends at Cilium's ingress.
+    server.insecure: true
+
+  cm:
+    url: https://argocd.recurse.cloud
+    admin.enabled: true
+
+    # Waves on child Applications only wait if Argo CD assesses Application
+    # health, which it stopped doing by default in 1.8. Without this, the
+    # root app applies every platform component at once.
+    resource.customizations.health.argoproj.io_Application: |
+      hs = {}
+      hs.status = "Progressing"
+      hs.message = ""
+      if obj.status ~= nil and obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+      return hs
+
+    # GitHub login through Dex. Waiting on an RC org owner for the OAuth app;
+    # until then, log in as admin. The client ID and secret will come from a
+    # SealedSecret `dex-github` labeled app.kubernetes.io/part-of=argocd, in a
+    # platform/argocd/manifests/ directory added as a third source.
+    # dex.config: |
+    #   connectors:
+    #     - type: github
+    #       id: github
+    #       name: GitHub
+    #       config:
+    #         clientID: $dex-github:clientID
+    #         clientSecret: $dex-github:clientSecret
+    #         orgs:
+    #           - name: recursecenter
+
+  rbac:
+    # Everyone sees everything and can sync. heap-admins can do the rest.
+    policy.default: role:recurser
+    policy.csv: |
+      p, role:recurser, applications, get, */*, allow
+      p, role:recurser, applications, sync, */*, allow
+      p, role:recurser, logs, get, */*, allow
+      p, role:recurser, projects, get, *, allow
+      p, role:recurser, clusters, get, *, allow
+      p, role:recurser, repositories, get, *, allow
+      g, recursecenter:heap-admins, role:admin
+    scopes: "[groups]"
+
+server:
+  ingress:
+    enabled: true
+    ingressClassName: cilium
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    tls: true
+
+repoServer:
+  resources:
+    requests:
+      memory: 256Mi
+    limits:
+      memory: 1Gi

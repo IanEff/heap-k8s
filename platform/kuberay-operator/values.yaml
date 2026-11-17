@@ -1,0 +1,3 @@
+# Chart defaults: the operator watches every namespace, so a RayCluster in any
+# app-* namespace works.
+{}

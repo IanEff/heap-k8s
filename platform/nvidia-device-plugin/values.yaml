@@ -1,0 +1,5 @@
+# Drivers and nvidia-container-toolkit are on the hosts (cluster-config's gpu
+# role), and k3s makes nvidia the default runtime on GPU nodes, so no
+# RuntimeClass. cluster-config labels GPU nodes gpu=true.
+nodeSelector:
+  gpu: "true"

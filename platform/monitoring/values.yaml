@@ -1,0 +1,118 @@
+# Prometheus and Grafana. node_exporter already runs on every host from
+# cluster-config's metrics role (port 9100), so the chart's DaemonSet is off and
+# Prometheus scrapes the hosts directly. Cilium and Hubble expose metrics without
+# ServiceMonitors; Prometheus finds them by their prometheus.io annotations.
+
+alertmanager:
+  enabled: false
+
+nodeExporter:
+  enabled: false
+
+# k3s runs these inside the k3s process, and kube-proxy isn't there at all
+# (Cilium replaces it).
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    retentionSize: 18GB
+    # Pick up ServiceMonitors and PodMonitors from any namespace, not only ones
+    # carrying this chart's release label.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: heap-nfs
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 20Gi
+    additionalScrapeConfigs:
+      - job_name: node
+        static_configs:
+          - targets:
+              - broome.cluster.recurse.com:9100
+              - crosby.cluster.recurse.com:9100
+              - greene.cluster.recurse.com:9100
+              - mercer.cluster.recurse.com:9100
+        relabel_configs:
+          - source_labels: [__address__]
+            regex: "([^.]+).*"
+            target_label: instance
+            replacement: "${1}"
+      # Cilium agent and operator pods, and the hubble-metrics Service.
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
+      - job_name: kubernetes-services
+        kubernetes_sd_configs:
+          - role: endpoints
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: service
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
+
+grafana:
+  # The chart's generated password changes on every render, which Argo CD would
+  # see as drift and rotate on every sync. Seal one instead:
+  #
+  #   kubectl -n monitoring create secret generic grafana-admin \
+  #     --from-literal=admin-user=admin --from-literal=admin-password=<password> \
+  #     --dry-run=client -o yaml | kubeseal -o yaml > platform/monitoring/manifests/grafana-admin.sealed.yaml
+  #
+  # Grafana won't start until that file exists.
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  ingress:
+    enabled: true
+    ingressClassName: cilium
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - grafana.recurse.cloud
+    tls:
+      - secretName: grafana-tls
+        hosts:
+          - grafana.recurse.cloud
+  persistence:
+    enabled: true
+    storageClassName: heap-nfs
+    size: 2Gi

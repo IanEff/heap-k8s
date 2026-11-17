@@ -1,0 +1,64 @@
+name: validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install tools
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bin" && echo "$HOME/bin" >> "$GITHUB_PATH"
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz \
+            | tar -xz -C "$HOME/bin" kubeconform
+          curl -fsSL https://github.com/mikefarah/yq/releases/download/v4.47.1/yq_linux_amd64 -o "$HOME/bin/yq"
+          chmod +x "$HOME/bin/yq"
+          # helm and kustomize come with the ubuntu-latest image.
+          helm version --short
+          kustomize version
+
+      - name: Validate
+        run: scripts/validate.sh
+
+      - name: Render diff against main
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git worktree add -q /tmp/base "origin/${{ github.base_ref }}"
+          mkdir -p /tmp/render
+          scripts/render.sh /tmp/render/head
+          if [ -x /tmp/base/scripts/render.sh ]; then
+            /tmp/base/scripts/render.sh /tmp/render/base
+          else
+            mkdir -p /tmp/render/base
+          fi
+          diff -ruN /tmp/render/base /tmp/render/head > /tmp/render.diff || true
+          {
+            echo "### Rendered diff against \`${{ github.base_ref }}\`"
+            echo
+            if [ ! -s /tmp/render.diff ]; then
+              echo "No change to what Argo CD applies."
+            elif [ "$(wc -c < /tmp/render.diff)" -gt 60000 ]; then
+              echo "The diff is $(wc -l < /tmp/render.diff) lines, too long for a comment. Run \`scripts/render.sh\` on both branches to read it."
+            else
+              echo '```diff'
+              cat /tmp/render.diff
+              echo '```'
+            fi
+          } > /tmp/comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/comment.md --edit-last \
+            || gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/comment.md

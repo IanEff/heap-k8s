@@ -1,0 +1,34 @@
+# The operator and its CRDs. RayClusters and RayServices themselves go in apps/.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kuberay-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://ray-project.github.io/kuberay-helm/
+      chart: kuberay-operator
+      targetRevision: 1.7.2
+      helm:
+        releaseName: kuberay-operator
+        valueFiles:
+          - $values/platform/kuberay-operator/values.yaml
+    - repoURL: https://github.com/recursecenter/heap-k8s.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kuberay-operator
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # The RayCluster CRD is too big for client-side apply.
+      - ServerSideApply=true
