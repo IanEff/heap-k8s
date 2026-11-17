@@ -29,23 +29,28 @@ configs:
       end
       return hs
 
-    # GitHub login through Dex. Waiting on an RC org owner for the OAuth app;
-    # until then, log in as admin. The client ID and secret will come from a
-    # SealedSecret `dex-github` labeled app.kubernetes.io/part-of=argocd, in a
-    # platform/argocd/manifests/ directory added as a third source.
-    # dex.config: |
-    #   connectors:
-    #     - type: github
-    #       id: github
-    #       name: GitHub
-    #       config:
-    #         clientID: $dex-github:clientID
-    #         clientSecret: $dex-github:clientSecret
-    #         orgs:
-    #           - name: recursecenter
+    # Login through batchmate.id, the OIDC gateway in front of recurse.com
+    # (D-21). No Dex. batchmate.id refuses any authorize request without PKCE,
+    # confidential clients included, so enablePKCEAuthentication is required;
+    # Argo CD 3.6's server-side login sends it. Rehearsed in heap-lab
+    # 2026-11-17. The secret still has to be sealed: a SealedSecret
+    # `argocd-oidc` (key clientSecret) labeled app.kubernetes.io/part-of=argocd,
+    # in a platform/argocd/manifests/ directory added as a third source.
+    oidc.config: |
+      name: Recurse
+      issuer: https://batchmate.id
+      clientID: svc_028fae741f8332e31fdb6a580c0c4cc5
+      clientSecret: $argocd-oidc:clientSecret
+      requestedScopes: ["openid", "profile", "email"]
+      enablePKCEAuthentication: true
 
   rbac:
-    # Everyone sees everything and can sync. heap-admins can do the rest.
+    # Everyone sees everything and can sync. Admins are listed one per line
+    # by subject: batchmate.id sends no groups, so the heap-admins line below
+    # matches nobody. The subject is the gateway's sub today, and the RC id once
+    # batchmate.id sends federated_claims. Keep comments on their own lines; a
+    # trailing "# ..." becomes part of the role name.
+    #   g, <subject>, role:admin
     policy.default: role:recurser
     policy.csv: |
       p, role:recurser, applications, get, */*, allow
@@ -71,3 +76,7 @@ repoServer:
       memory: 256Mi
     limits:
       memory: 1Gi
+
+# Login goes straight to batchmate.id; the bundled Dex has nothing to do.
+dex:
+  enabled: false
